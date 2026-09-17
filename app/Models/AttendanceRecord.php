@@ -2,35 +2,35 @@
 
 namespace App\Models;
 
-use Illuminate\Database\Eloquent\Attributes\Fillable;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 
-#[Fillable([
-    'user_id',
-    'employee_id',
-    'type',
-    'attendance_date',
-    'recorded_at',
-    'latitude',
-    'longitude',
-    'accuracy',
-    'address',
-    'city',
-    'state',
-    'country',
-    'photo',
-    'watermarked_photo',
-    'device_information',
-    'user_agent',
-    'ip_address',
-])]
 class AttendanceRecord extends Model
 {
     public const TYPE_CHECK_IN = 'check_in';
 
     public const TYPE_CHECK_OUT = 'check_out';
+
+    protected $fillable = [
+        'user_id',
+        'employee_id',
+        'type',
+        'attendance_date',
+        'recorded_at',
+        'latitude',
+        'longitude',
+        'accuracy',
+        'address',
+        'city',
+        'state',
+        'country',
+        'photo',
+        'watermarked_photo',
+        'device_information',
+        'user_agent',
+        'ip_address',
+    ];
 
     /**
      * @return array<string, string>
@@ -46,6 +46,8 @@ class AttendanceRecord extends Model
             'device_information' => 'array',
         ];
     }
+
+
 
     /**
      * @return BelongsTo<User, $this>

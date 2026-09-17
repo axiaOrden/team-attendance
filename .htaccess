@@ -1,29 +1,29 @@
-# ---------------------------------------------------------------------------
-# Subdirectory hosting (XAMPP / Apache)
-# ---------------------------------------------------------------------------
-# Drop this whole project inside "htdocs/attendance" (or any subdirectory) and
-# browse to https://app.euro-mega.com/attendance - every request is forwarded
-# into the public/ directory, which keeps the application code outside of the
-# web root while the application itself is served from the subdirectory.
-#
-# Remember to point APP_URL and ASSET_URL at the subdirectory as well.
-# ---------------------------------------------------------------------------
-
-<IfModule mod_negotiation.c>
-    Options -MultiViews -Indexes
-</IfModule>
-
-DirectoryIndex index.php index.html
+DirectoryIndex index.php
 
 <IfModule mod_rewrite.c>
+    Options -MultiViews
+
     RewriteEngine On
+    RewriteBase /ng/attendance/
 
-    # Send everything into public/ (front controller, assets and build output).
-    RewriteRule ^(.*)$ public/$1 [L]
-</IfModule>
+    # Vite production assets
+    RewriteRule ^build/(.*)$ public/build/$1 [L]
 
-<IfModule !mod_rewrite.c>
-    # Without mod_rewrite the application is still reachable through
-    # https://app.euro-mega.com/attendance/public/
-    RedirectMatch 302 "^/attendance/?$" "/attendance/public/"
+    # Laravel public storage
+    RewriteRule ^storage/(.*)$ public/storage/$1 [L]
+
+    # Authorization header
+    RewriteCond %{HTTP:Authorization} .
+    RewriteRule .* - [E=HTTP_AUTHORIZATION:%{HTTP:Authorization}]
+
+    # X-XSRF token
+    RewriteCond %{HTTP:x-xsrf-token} .
+    RewriteRule .* - [E=HTTP_X_XSRF_TOKEN:%{HTTP:X-XSRF-Token}]
+
+    # Serve existing files directly
+    RewriteCond %{REQUEST_FILENAME} -f
+    RewriteRule ^ - [L]
+
+    # Everything else goes through Laravel
+    RewriteRule ^ index.php [L]
 </IfModule>
