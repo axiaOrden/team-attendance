@@ -3,12 +3,11 @@
     $greeting = $hour < 12 ? 'Good Morning' : ($hour < 17 ? 'Good Afternoon' : 'Good Evening');
 
     $status = $summary['status'];
-    $nextType = $summary['type'];
+    $nextType = \App\Models\AttendanceRecord::TYPE_CHECKPOINT;
 
     [$statusLabel, $statusVariant, $statusIcon] = match ($status) {
-        'checked_in' => ['Checked in', 'success', 'check_circle'],
-        'checked_out' => ['Day complete', 'info', 'check_circle'],
-        default => ['Not checked in', 'warning', 'schedule'],
+        'active' => [$summary['checkpoints'].' '.\Illuminate\Support\Str::plural('checkpoint', $summary['checkpoints']), 'success', 'add_location_alt'],
+        default => ['No checkpoints yet', 'warning', 'schedule'],
     };
 
     $steps = [
@@ -60,19 +59,15 @@
             </div>
 
             <button type="button"
-                    class="m3-action {{ $nextType === 'check_out' ? 'm3-action--checkout' : '' }} {{ $nextType === null ? 'm3-action--done' : '' }}"
+                    class="m3-action"
                     data-attendance-button
                     data-type="{{ $nextType }}"
-                    @disabled($nextType === null)>
-                @if ($nextType !== null)
-                    <span class="m3-pulse" aria-hidden="true"></span>
-                @endif
-                <x-md-icon name="{{ $nextType === 'check_out' ? 'logout' : 'check_circle' }}" size="lg" />
-                <span data-attendance-button-label>
-                    {{ $nextType === 'check_out' ? 'CHECK OUT' : ($nextType === 'check_in' ? 'CHECK IN' : 'DONE') }}
-                </span>
+                    >
+                <span class="m3-pulse" aria-hidden="true"></span>
+                <x-md-icon name="add_location_alt" size="lg" />
+                <span data-attendance-button-label>ADD CHECKPOINT</span>
                 <span class="m3-action__hint">
-                    {{ $nextType === null ? 'Attendance complete' : 'Tap to record' }}
+                    Tap to record your current location
                 </span>
             </button>
 
@@ -177,12 +172,12 @@
             <div class="m3-list" data-today-list>
                 @forelse ($today as $record)
                     <div class="m3-row">
-                        <div class="m3-row__icon {{ $record->isCheckIn() ? 'm3-row__icon--success' : '' }}">
-                            {{ $record->isCheckIn() ? '↓' : '↑' }}
+                        <div class="m3-row__icon">
+                            •
                         </div>
                         <div class="m3-row__body">
                             <div class="m3-row__title">
-                                {{ $record->isCheckIn() ? 'CHECK IN' : 'CHECK OUT' }} · {{ $record->recorded_at->format('h:i:s A') }}
+                                {{ strtoupper($record->typeLabel()) }} · {{ $record->recorded_at->format('h:i:s A') }}
                             </div>
                             <div class="m3-row__meta">
                                 <x-md-icon name="location_on" size="sm" />
@@ -231,6 +226,9 @@
             <div class="row-wrap" style="justify-content:center;margin-top:16px">
                 <button type="button" class="m3-capture" data-capture-button aria-label="Take photo">
                     <span class="m3-capture__core"></span>
+                </button>
+                <button type="button" class="m3-btn m3-btn--tonal m3-btn--sm is-hidden" data-switch-camera-button>
+                    Use back camera
                 </button>
             </div>
 

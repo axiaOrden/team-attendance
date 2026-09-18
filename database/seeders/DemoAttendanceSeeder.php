@@ -89,10 +89,10 @@ class DemoAttendanceSeeder extends Seeder
     {
         $date = today()->subDays($daysAgo);
 
-        $this->record($user, AttendanceRecord::TYPE_CHECK_IN, $date, $in[0], $in[1]);
+        $this->record($user, AttendanceRecord::TYPE_CHECKPOINT, $date, $in[0], $in[1]);
 
         if ($out !== null) {
-            $this->record($user, AttendanceRecord::TYPE_CHECK_OUT, $date, $out[0], $out[1]);
+            $this->record($user, AttendanceRecord::TYPE_CHECKPOINT, $date, $out[0], $out[1]);
         }
     }
 

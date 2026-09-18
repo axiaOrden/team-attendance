@@ -16,53 +16,20 @@
     <meta name="theme-color" content="#fef7ff">
     <title>@yield('title', 'Administration') · {{ config('app.name', 'Attendance') }}</title>
 
-    <link rel="stylesheet" href="{{ asset('vendor/leaflet/leaflet.css') }}">
+    <link rel="stylesheet" href="https://unpkg.com/maplibre-gl@5.7.1/dist/maplibre-gl.css">
+    <script defer src="https://unpkg.com/maplibre-gl@5.7.1/dist/maplibre-gl.js"></script>
     @vite(['resources/css/app.css', 'resources/js/app.js'])
 </head>
 <body class="admin-body">
 <div class="admin-shell">
-    <aside class="admin-sidebar">
-        <div class="admin-sidebar__brand">
-            <span class="admin-brand__mark"><x-md-icon name="my_location" /></span>
-            <span class="stack-sm">
-                <strong>{{ config('app.name', 'Attendance') }}</strong>
-                <span class="md-muted" style="font-size:.75rem">Administration</span>
-            </span>
-        </div>
-
-        @foreach ($links as $link)
-            <a class="admin-sidebar__link"
-               href="{{ route($link['route']) }}"
-               @if (request()->routeIs($link['route'])) aria-current="page" @endif>
-                <x-md-icon name="{{ $link['icon'] }}" />
-                <span>{{ $link['label'] }}</span>
-            </a>
-        @endforeach
-
-        <div style="flex:1"></div>
-
-        <div class="m3-card m3-card--flat" style="padding:14px">
-            <div class="md-label">Signed in</div>
-            <div class="m3-row__title">{{ $admin->name }}</div>
-            <div class="md-muted" style="font-size:.75rem">{{ $admin->employee_id }}</div>
-            <form method="POST" action="{{ route('logout') }}" style="margin-top:10px">
-                @csrf
-                <button type="submit" class="m3-btn m3-btn--outlined m3-btn--sm m3-btn--block">
-                    <x-md-icon name="logout" size="sm" />
-                    <span>Log out</span>
-                </button>
-            </form>
-        </div>
-    </aside>
-
-    <div style="flex:1;min-width:0;display:flex;flex-direction:column">
+    <div class="admin-content-shell">
         <div class="admin-topbar">
             <span class="admin-brand__mark" style="width:36px;height:36px">
                 <x-md-icon name="my_location" size="sm" />
             </span>
             <div class="m3-appbar__titles">
                 <span class="m3-appbar__title">@yield('title', 'Administration')</span>
-                <span class="m3-appbar__subtitle">{{ $admin->name }}</span>
+                <span class="m3-appbar__subtitle">{{ $admin->name }} · {{ $admin->employee_id }}</span>
             </div>
             <div style="flex:1"></div>
             <form method="POST" action="{{ route('logout') }}">
@@ -103,8 +70,6 @@
         </main>
     </div>
 </div>
-
-<script src="{{ asset('vendor/leaflet/leaflet.js') }}"></script>
 
 <div class="m3-dialog" data-photo-dialog>
     <div class="m3-dialog__panel">

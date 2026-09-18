@@ -7,8 +7,8 @@
  * timestamp stored with the record is the authoritative one).
  */
 
-const MAX_CAPTURE_SIZE = 1440;
-const JPEG_QUALITY = 0.85;
+const MAX_CAPTURE_SIZE = 1280;
+const JPEG_QUALITY = 0.76;
 
 class AppError extends Error {
     constructor(message, code = 'error') {
@@ -49,6 +49,7 @@ class AttendanceApp {
         this.busy = false;
         this.stream = null;
         this.capture = null;
+        this.facingMode = 'user';
     }
 
     /** Elements */
@@ -69,6 +70,7 @@ class AttendanceApp {
             previewImage: this.root.querySelector('[data-camera-preview-image]'),
             hint: this.root.querySelector('[data-camera-hint]'),
             captureButton: this.root.querySelector('[data-capture-button]'),
+            switchCameraButton: this.root.querySelector('[data-switch-camera-button]'),
             submitButton: this.root.querySelector('[data-submit-button]'),
             retakeButton: this.root.querySelector('[data-retake-button]'),
             fallback: this.root.querySelector('[data-camera-fallback]'),
@@ -83,6 +85,7 @@ class AttendanceApp {
         this.ui.button?.addEventListener('click', () => this.start(this.ui.button.dataset.type));
 
         this.ui.captureButton?.addEventListener('click', () => this.captureFrame());
+        this.ui.switchCameraButton?.addEventListener('click', () => this.switchCamera());
         this.ui.retakeButton?.addEventListener('click', () => this.openCamera());
         this.ui.submitButton?.addEventListener('click', () => this.submit());
         this.ui.sheetScrim?.addEventListener('click', () => this.closeCamera(true));
@@ -129,23 +132,10 @@ class AttendanceApp {
             return;
         }
 
-        if (!type || status === 'checked_out') {
-            button.dataset.type = '';
-            button.disabled = true;
-            button.classList.add('m3-action--done');
-            button.classList.remove('m3-action--checkout');
-            if (this.ui.buttonLabel) {
-                this.ui.buttonLabel.textContent = 'DONE';
-            }
-        } else {
-            button.dataset.type = type;
-            button.disabled = false;
-            button.classList.toggle('m3-action--checkout', type === 'check_out');
-            button.classList.remove('m3-action--done');
-            if (this.ui.buttonLabel) {
-                this.ui.buttonLabel.textContent = type === 'check_in' ? 'CHECK IN' : 'CHECK OUT';
-            }
-        }
+        button.dataset.type = 'checkpoint';
+        button.disabled = false;
+        button.classList.remove('m3-action--done', 'm3-action--checkout');
+        if (this.ui.buttonLabel) this.ui.buttonLabel.textContent = 'ADD CHECKPOINT';
     }
 
     setStatusChip(label, variant) {
@@ -415,13 +405,14 @@ class AttendanceApp {
 
         try {
             this.stream = await navigator.mediaDevices.getUserMedia({
-                video: { facingMode: 'user', width: { ideal: 1280 }, height: { ideal: 960 } },
+                video: { facingMode: { ideal: this.facingMode }, width: { ideal: 1280 }, height: { ideal: 960 } },
                 audio: false,
             });
 
             this.ui.video.srcObject = this.stream;
             await this.ui.video.play().catch(() => {});
             this.ui.fallback?.classList.add('is-hidden');
+            await this.updateCameraSwitcher();
         } catch (error) {
             // Camera blocked or unavailable (for example on plain HTTP):
             // the native camera input still works on phones.
@@ -429,9 +420,28 @@ class AttendanceApp {
         }
     }
 
+    async updateCameraSwitcher() {
+        if (!this.ui.switchCameraButton || !navigator.mediaDevices?.enumerateDevices) {
+            return;
+        }
+
+        const devices = await navigator.mediaDevices.enumerateDevices().catch(() => []);
+        const hasMultipleCameras = devices.filter((device) => device.kind === 'videoinput').length > 1;
+
+        this.ui.switchCameraButton.classList.toggle('is-hidden', !hasMultipleCameras);
+        this.ui.switchCameraButton.textContent = this.facingMode === 'user' ? 'Use back camera' : 'Use front camera';
+    }
+
+    async switchCamera() {
+        this.facingMode = this.facingMode === 'user' ? 'environment' : 'user';
+        this.stopStream();
+        await this.openCamera();
+    }
+
     useFallback() {
         this.ui.video?.classList.add('is-hidden');
         this.ui.captureButton?.classList.add('is-hidden');
+        this.ui.switchCameraButton?.classList.add('is-hidden');
         this.ui.fallback?.classList.remove('is-hidden');
 
         if (this.ui.hint) {
@@ -550,7 +560,6 @@ class AttendanceApp {
             const device = await collectDeviceInfo();
             const capturedAt = this.serverNow();
 
-            const originalBlob = await canvasToBlob(this.currentCanvas);
             const watermarked = drawWatermark(this.currentCanvas, {
                 person: `${this.config.employeeName} / ${this.config.employeeId}`,
                 timestamp: formatWatermarkStamp(capturedAt, this.config.timezone),
@@ -570,7 +579,6 @@ class AttendanceApp {
             if (this.fix.accuracy !== null) {
                 form.append('accuracy', String(this.fix.accuracy));
             }
-            form.append('photo', originalBlob, 'attendance.jpg');
             form.append('watermarked_photo', watermarkedBlob, 'attendance-watermarked.jpg');
             form.append('device_information', JSON.stringify(device.information));
 
@@ -618,11 +626,7 @@ class AttendanceApp {
         this.setButtonState(payload.next_type, payload.status);
         this.updateTodayList(payload.record);
 
-        const labels = {
-            checked_in: ['Checked in', 'success'],
-            checked_out: ['Checked out', 'success'],
-        };
-        const [label, variant] = labels[payload.status] || ['Recorded', 'info'];
+        const [label, variant] = [`${payload.record.type_label} added`, 'success'];
 
         this.setStatusChip(label, variant);
         this.notify(payload.message || 'Attendance recorded.', 'success');
@@ -643,7 +647,7 @@ class AttendanceApp {
 
         const icon = document.createElement('div');
         icon.className = `m3-row__icon ${record.type === 'check_in' ? 'm3-row__icon--success' : ''}`;
-        icon.textContent = record.type === 'check_in' ? '↓' : '↑';
+        icon.textContent = record.type === 'check_in' ? '↓' : record.type === 'checkpoint' ? '•' : '↑';
 
         const body = document.createElement('div');
         body.className = 'm3-row__body';
@@ -770,9 +774,9 @@ function drawWatermark(sourceCanvas, data) {
     context.drawImage(sourceCanvas, 0, 0);
 
     const fontFamily = getComputedStyle(document.body).fontFamily || 'sans-serif';
-    const padding = Math.round(Math.max(12, canvas.width * 0.028));
+    const padding = Math.round(Math.max(10, canvas.width * 0.018));
     const maxWidth = canvas.width - padding * 4;
-    const maxPanelHeight = canvas.height * 0.45;
+    const maxPanelHeight = canvas.height * 0.28;
 
     const build = (baseSize) => {
         const headingSize = Math.round(baseSize * 1.12);
@@ -788,21 +792,18 @@ function drawWatermark(sourceCanvas, data) {
         }));
 
         context.font = `500 ${baseSize}px ${fontFamily}`;
+        const accuracy = data.accuracy !== null && data.accuracy !== undefined ? `±${Math.round(data.accuracy)} m` : 'Accuracy unavailable';
         const body = [
-            data.timestamp,
-            `Latitude: ${Number(data.latitude).toFixed(6)}`,
-            `Longitude: ${Number(data.longitude).toFixed(6)}`,
-            `Accuracy: ${data.accuracy !== null && data.accuracy !== undefined ? `${Math.round(data.accuracy)} m` : 'Not reported'}`,
-            'Address:',
+            data.timestamp.replace(' • ', ' '),
+            `${Number(data.latitude).toFixed(6)}, ${Number(data.longitude).toFixed(6)} • ${accuracy}`,
             ...wrapText(context, data.address || 'Address not available', maxWidth),
-            'Device:',
-            ...wrapText(context, data.device || 'Unknown device', maxWidth),
+            data.device || 'Unknown device',
         ].map((text) => ({ text, size: baseSize, weight: 500, lineHeight }));
 
         return [...heading, ...body];
     };
 
-    let baseSize = Math.max(12, Math.min(Math.round(canvas.width * 0.034), 34));
+    let baseSize = Math.max(11, Math.min(Math.round(canvas.width * 0.026), 28));
     let blocks = build(baseSize);
     let contentHeight = blocks.reduce((total, block) => total + block.lineHeight, 0);
     let panelHeight = contentHeight + padding * 2;

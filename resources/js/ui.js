@@ -13,7 +13,47 @@ ready(() => {
     initAutoSubmit();
     initConfirmForms();
     initPhotoDialog();
+    initCalendarPicker();
 });
+
+function initCalendarPicker() {
+    const picker = document.querySelector('[data-calendar-picker]');
+    const fromInput = document.querySelector('[data-calendar-from]');
+    const toInput = document.querySelector('[data-calendar-to]');
+    const label = document.querySelector('[data-calendar-label]');
+
+    if (!picker || !fromInput || !toInput) return;
+
+    const buttons = Array.from(picker.querySelectorAll('[data-calendar-date]'));
+    let selectingEnd = false;
+
+    const formatDate = (value) => new Intl.DateTimeFormat('en-GB', { day: '2-digit', month: 'short', year: 'numeric', timeZone: 'UTC' }).format(new Date(`${value}T00:00:00Z`));
+    const paint = () => {
+        buttons.forEach((button) => {
+            const value = button.dataset.calendarDate;
+            button.classList.toggle('is-selected', value === fromInput.value || value === toInput.value);
+            button.classList.toggle('is-in-range', value > fromInput.value && value < toInput.value);
+        });
+        if (label) label.textContent = fromInput.value === toInput.value ? formatDate(fromInput.value) : `${formatDate(fromInput.value)} → ${formatDate(toInput.value)}`;
+    };
+
+    buttons.forEach((button) => button.addEventListener('click', () => {
+        const value = button.dataset.calendarDate;
+        if (!selectingEnd) {
+            fromInput.value = value;
+            toInput.value = value;
+            selectingEnd = true;
+        } else {
+            const start = fromInput.value;
+            fromInput.value = value < start ? value : start;
+            toInput.value = value < start ? start : value;
+            selectingEnd = false;
+        }
+        paint();
+    }));
+
+    paint();
+}
 
 /** Segmented List / Map switch (mobile only, both are shown on desktop). */
 function initViewToggles() {

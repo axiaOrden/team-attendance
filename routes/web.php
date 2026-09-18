@@ -35,9 +35,11 @@ Route::middleware('auth')->group(function () {
 
 Route::middleware(['auth', 'admin'])->prefix('admin')->name('admin.')->group(function () {
     Route::get('/', [AdminDashboardController::class, 'index'])->name('dashboard');
+    Route::get('/export', [AdminDashboardController::class, 'export'])->name('dashboard.export');
     Route::get('/trail', [TrailController::class, 'index'])->name('trail');
     Route::get('/employees', [AdminEmployeeController::class, 'index'])->name('employees');
     Route::patch('/employees/{user}/role', [AdminEmployeeController::class, 'updateRole'])->name('employees.role');
+    Route::patch('/employees/{user}/status', [AdminEmployeeController::class, 'updateStatus'])->name('employees.status');
 });
 
 require __DIR__.'/auth.php';

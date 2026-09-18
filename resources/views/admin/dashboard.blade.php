@@ -3,236 +3,179 @@
 @section('title', 'Attendance dashboard')
 
 @php
-    $activeFilters = collect($filters)->filter(fn ($value) => $value !== null && $value !== '')->count();
+    $query = collect($filters)->except('date')->filter(fn ($value) => $value !== null && $value !== '')->all();
+    $activeFilters = collect($filters)->only(['employee', 'employee_code', 'status'])->filter()->count();
+    $rangeLabel = $filters['from'] === $filters['to']
+        ? \Illuminate\Support\Carbon::parse($filters['from'])->format('d M Y')
+        : \Illuminate\Support\Carbon::parse($filters['from'])->format('d M Y').' – '.\Illuminate\Support\Carbon::parse($filters['to'])->format('d M Y');
+    $calendarMonth = \Illuminate\Support\Carbon::parse(request('month', $filters['from']))->startOfMonth();
+    $calendarStart = $calendarMonth->copy()->startOfWeek(\Illuminate\Support\Carbon::SUNDAY);
+    $calendarDays = collect(range(0, 41))->map(fn ($offset) => $calendarStart->copy()->addDays($offset));
+    $activityDateLookup = $activityDates->flip();
 @endphp
 
 @section('content')
-    <div class="admin-grid">
-        <div class="stat-card">
-            <div class="stat-card__label">Records</div>
-            <div class="stat-card__value">{{ number_format($stats['records']) }}</div>
-        </div>
-        <div class="stat-card">
-            <div class="stat-card__label">Check ins</div>
-            <div class="stat-card__value text-success">{{ number_format($stats['check_ins']) }}</div>
-        </div>
-        <div class="stat-card">
-            <div class="stat-card__label">Check outs</div>
-            <div class="stat-card__value">{{ number_format($stats['check_outs']) }}</div>
-        </div>
-        <div class="stat-card">
-            <div class="stat-card__label">Employees</div>
-            <div class="stat-card__value">{{ number_format($stats['employees']) }}</div>
-        </div>
-    </div>
-
-    <form class="m3-card m3-card--flat" method="GET" action="{{ route('admin.dashboard') }}">
-        <div class="m3-card__header">
-            <span class="m3-card__title">Filters</span>
-            <span class="md-muted" style="font-size:.75rem">{{ $activeFilters }} active</span>
+    <form class="m3-card dashboard-calendar" method="GET" action="{{ route('admin.dashboard') }}" data-date-filter>
+        <div class="row-between">
+            <div>
+                <div class="md-label">Date / date range</div>
+                <div class="md-headline dashboard-calendar__title" data-calendar-label>{{ $rangeLabel }}</div>
+            </div>
+            <x-md-icon name="calendar_month" size="lg" />
         </div>
 
-        <div class="filter-grid">
-            <div class="m3-field">
-                <label class="m3-field__label" for="filter-date">Date</label>
-                <input class="m3-input" type="date" id="filter-date" name="date" value="{{ $filters['date'] }}">
-            </div>
+        <input type="hidden" name="from" value="{{ $filters['from'] }}" data-calendar-from>
+        <input type="hidden" name="to" value="{{ $filters['to'] }}" data-calendar-to>
 
-            <div class="m3-field">
-                <label class="m3-field__label" for="filter-from">Date range from</label>
-                <input class="m3-input" type="date" id="filter-from" name="from" value="{{ $filters['from'] }}">
+        <div class="calendar-picker" data-calendar-picker>
+            <div class="calendar-picker__header">
+                <a class="m3-btn m3-btn--text m3-btn--sm" aria-label="Previous month" href="{{ route('admin.dashboard', array_merge($query, ['month' => $calendarMonth->copy()->subMonth()->format('Y-m')])) }}">‹</a>
+                <strong>{{ $calendarMonth->format('F Y') }}</strong>
+                <a class="m3-btn m3-btn--text m3-btn--sm" aria-label="Next month" href="{{ route('admin.dashboard', array_merge($query, ['month' => $calendarMonth->copy()->addMonth()->format('Y-m')])) }}">›</a>
             </div>
-
-            <div class="m3-field">
-                <label class="m3-field__label" for="filter-to">Date range to</label>
-                <input class="m3-input" type="date" id="filter-to" name="to" value="{{ $filters['to'] }}">
+            <div class="calendar-picker__grid calendar-picker__weekdays" aria-hidden="true">
+                @foreach (['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'] as $weekday)<span>{{ $weekday }}</span>@endforeach
             </div>
-
-            <div class="m3-field">
-                <label class="m3-field__label" for="filter-employee">Employee</label>
-                <select class="m3-select" id="filter-employee" name="employee" data-auto-submit>
-                    <option value="">All employees</option>
-                    @foreach ($employees as $person)
-                        <option value="{{ $person->id }}" @selected((int) $filters['employee'] === $person->id)>
-                            {{ $person->name }} ({{ $person->employee_id }})
-                        </option>
-                    @endforeach
-                </select>
-            </div>
-
-            <div class="m3-field">
-                <label class="m3-field__label" for="filter-code">Employee ID</label>
-                <input class="m3-input" type="text" id="filter-code" name="employee_code"
-                       value="{{ $filters['employee_code'] }}" placeholder="EMP001" autocomplete="off">
-            </div>
-
-            <div class="m3-field">
-                <label class="m3-field__label" for="filter-type">Check in / Check out</label>
-                <select class="m3-select" id="filter-type" name="type" data-auto-submit>
-                    <option value="">Check in and check out</option>
-                    <option value="check_in" @selected($filters['type'] === 'check_in')>Check in only</option>
-                    <option value="check_out" @selected($filters['type'] === 'check_out')>Check out only</option>
-                </select>
+            <div class="calendar-picker__grid" role="grid" aria-label="Choose a date or date range">
+                @foreach ($calendarDays as $day)
+                    @php $dateValue = $day->toDateString(); @endphp
+                    <button type="button"
+                            class="calendar-day {{ $day->month !== $calendarMonth->month ? 'calendar-day--outside' : '' }}"
+                            data-calendar-date="{{ $dateValue }}"
+                            aria-label="{{ $day->format('j F Y') }}">
+                        <span>{{ $day->day }}</span>
+                        @if ($activityDateLookup->has($dateValue))<i aria-label="Has checkpoint activity"></i>@endif
+                    </button>
+                @endforeach
             </div>
         </div>
 
-        <div class="row-wrap" style="margin-top:14px">
-            <button type="submit" class="m3-btn m3-btn--filled m3-btn--sm">
-                <x-md-icon name="tune" size="sm" />
-                <span>Apply filters</span>
-            </button>
-            <a class="m3-btn m3-btn--text m3-btn--sm" href="{{ route('admin.dashboard') }}">
-                <x-md-icon name="refresh" size="sm" />
-                <span>Reset</span>
-            </a>
+        @foreach (request()->except(['from', 'to', 'date', 'page']) as $name => $value)
+            @if (is_scalar($value))
+                <input type="hidden" name="{{ $name }}" value="{{ $value }}">
+            @endif
+        @endforeach
+
+        <div class="row-wrap">
+            <button class="m3-btn m3-btn--filled m3-btn--sm" type="submit">Apply dates</button>
+            <a class="m3-chip m3-chip--outlined" href="{{ route('admin.dashboard', array_merge($query, ['from' => today()->toDateString(), 'to' => today()->toDateString()])) }}">Today</a>
+            <span class="calendar-activity-key"><span></span> Dates with checkpoint activity</span>
         </div>
     </form>
 
-    <div class="row-between">
-        <span class="m3-card__title">Attendance records</span>
-        <div class="segment segment--view" role="tablist" aria-label="View mode">
-            <button type="button" class="segment__btn" data-view-target="list" aria-selected="true">
-                <x-md-icon name="history" size="sm" />
-                <span>List</span>
-            </button>
-            <button type="button" class="segment__btn" data-view-target="map" aria-selected="false">
-                <x-md-icon name="map" size="sm" />
-                <span>Map</span>
-            </button>
+    <section class="m3-card m3-card--flat stack-sm dashboard-map-card">
+        <div class="row-between">
+            <div>
+                <div class="m3-card__title">Latest employee locations</div>
+                <p class="m3-help">One marker per employee, using their latest checkpoint in this selection.</p>
+            </div>
         </div>
-    </div>
+        <div id="admin-map" class="map map--dashboard"></div>
+        <div class="map-legend">
+            <span class="map-legend__item">{{ $points->count() }} latest employee locations</span>
+        </div>
+    </section>
 
-    <div class="admin-split">
-        <section data-view="list" class="stack-md">
-            <div class="m3-card m3-card--flat">
-                @if ($records->isEmpty())
-                    <div style="text-align:center;padding:12px">
-                        <x-md-icon name="history" size="lg" />
-                        <div class="m3-row__title" style="margin-top:8px">No attendance records match these filters</div>
-                        <p class="m3-help">Try a wider date range or reset the filters.</p>
-                    </div>
-                @else
-                    <div class="admin-table-wrap">
-                        <table class="admin-table">
-                            <thead>
-                                <tr>
-                                    <th>Date &amp; time</th>
-                                    <th>Employee</th>
-                                    <th>Type</th>
-                                    <th>Location</th>
-                                    <th>Accuracy</th>
-                                    <th>Device</th>
-                                    <th>Photo</th>
-                                </tr>
-                            </thead>
-                            <tbody>
-                                @foreach ($records as $record)
-                                    <tr>
-                                        <td>
-                                            {{ $record->recorded_at->format('d M Y') }}
-                                            <div class="md-muted">{{ $record->recorded_at->format('h:i A') }}</div>
-                                        </td>
-                                        <td>
-                                            {{ $record->user?->name ?? 'Deleted user' }}
-                                            <div class="md-muted">{{ $record->employee_id }}</div>
-                                        </td>
-                                        <td>
-                                            <span class="m3-chip m3-chip--{{ $record->isCheckIn() ? 'success' : 'info' }}">
-                                                {{ $record->typeLabel() }}
-                                            </span>
-                                        </td>
-                                        <td>
-                                            {{ $record->locationLabel() }}
-                                            @if ($record->address)
-                                                <div class="md-muted">{{ \Illuminate\Support\Str::limit($record->address, 48) }}</div>
-                                            @endif
-                                        </td>
-                                        <td>{{ $record->accuracyLabel() }}</td>
-                                        <td>{{ $record->deviceLabel() }}</td>
-                                        <td>
-                                            @if ($record->photoUrl())
-                                                <button type="button"
-                                                        class="m3-chip m3-chip--outlined"
-                                                        data-photo-thumb
-                                                        data-photo-src="{{ $record->photoUrl() }}"
-                                                        data-photo-original="{{ $record->photoUrl('original') }}">
-                                                    <x-md-icon name="photo_camera" size="sm" />
-                                                    <span>View</span>
-                                                </button>
-                                            @else
-                                                <span class="md-muted">No photo</span>
-                                            @endif
-                                        </td>
-                                    </tr>
-                                @endforeach
-                            </tbody>
-                        </table>
-                    </div>
-
-                    <div class="admin-cards">
-                        @foreach ($records as $record)
-                            <div class="admin-record-card">
-                                <div class="m3-row__icon {{ $record->isCheckIn() ? 'm3-row__icon--success' : '' }}">
-                                    {{ $record->isCheckIn() ? '↓' : '↑' }}
-                                </div>
-                                <div class="m3-row__body">
-                                    <div class="row-between">
-                                        <span class="m3-row__title">{{ $record->user?->name ?? 'Deleted user' }}</span>
-                                        <span class="m3-chip m3-chip--{{ $record->isCheckIn() ? 'success' : 'info' }}">
-                                            {{ $record->typeLabel() }}
-                                        </span>
-                                    </div>
-                                    <div class="m3-row__meta">
-                                        {{ $record->recorded_at->format('d M Y · h:i A') }} · {{ $record->employee_id }}
-                                    </div>
-                                    <div class="m3-row__meta">
-                                        <x-md-icon name="location_on" size="sm" />
-                                        <span>{{ $record->locationLabel() }} · ±{{ $record->accuracyLabel() }}</span>
-                                    </div>
-                                    <div class="m3-row__meta">{{ $record->deviceLabel() }}</div>
-
-                                    @if ($record->photoUrl())
-                                        <button type="button"
-                                                class="m3-chip m3-chip--outlined"
-                                                style="margin-top:8px"
-                                                data-photo-thumb
-                                                data-photo-src="{{ $record->photoUrl() }}"
-                                                data-photo-original="{{ $record->photoUrl('original') }}">
-                                            <x-md-icon name="photo_camera" size="sm" />
-                                            <span>View photo</span>
-                                        </button>
-                                    @endif
-                                </div>
-                            </div>
-                        @endforeach
-                    </div>
-                @endif
+    <section>
+        <div class="section-heading">
+            <div>
+                <div class="md-label">Overview</div>
+                <h2 class="m3-card__title">{{ $rangeLabel }}</h2>
             </div>
-
-            {{ $records->links() }}
-        </section>
-
-        <section data-view="map" class="stack-md">
-            <div class="m3-card m3-card--flat stack-sm">
-                <div id="admin-map" class="map"></div>
-
-                <div class="map-legend">
-                    <span class="map-legend__item">
-                        <span class="map-legend__dot" style="background: var(--md-success)"></span> Check in
-                    </span>
-                    <span class="map-legend__item">
-                        <span class="map-legend__dot" style="background: var(--md-primary)"></span> Check out
-                    </span>
-                    <span class="map-legend__item">{{ $points->count() }} plotted locations (max 500)</span>
+        </div>
+        <div class="admin-grid admin-grid--overview">
+            @foreach ([
+                ['Active employees', $stats['employees'], 'people'],
+                ['Check ins', $stats['check_ins'], 'login'],
+                ['Check outs', $stats['check_outs'], 'logout'],
+                ['Checkpoints', $stats['checkpoints'], 'add_location_alt'],
+                ['Avg. working hours', $stats['average_hours'], 'schedule'],
+            ] as [$label, $value, $icon])
+                <div class="stat-card">
+                    <x-md-icon name="{{ $icon }}" size="sm" />
+                    <div class="stat-card__value">{{ is_numeric($value) ? number_format($value) : $value }}</div>
+                    <div class="stat-card__label">{{ $label }}</div>
                 </div>
+            @endforeach
+        </div>
+    </section>
 
-                <p class="m3-help">
-                    Locations are the GPS coordinates recorded with each attendance event.
-                    Tap a marker for the employee, time, accuracy, address, device and photo.
-                </p>
+    <form class="m3-card m3-card--flat" method="GET" action="{{ route('admin.dashboard') }}">
+        <div class="m3-card__header">
+            <span class="m3-card__title">Filter criteria</span>
+            <span class="md-muted">{{ $activeFilters }} active</span>
+        </div>
+        <input type="hidden" name="from" value="{{ $filters['from'] }}">
+        <input type="hidden" name="to" value="{{ $filters['to'] }}">
+        <div class="filter-grid">
+            <div class="m3-field">
+                <label class="m3-field__label" for="filter-employee">Employee</label>
+                <select class="m3-select" id="filter-employee" name="employee">
+                    <option value="">All employees</option>
+                    @foreach ($employees as $person)
+                        <option value="{{ $person->id }}" @selected((int) $filters['employee'] === $person->id)>{{ $person->name }} ({{ $person->employee_id }})</option>
+                    @endforeach
+                </select>
             </div>
-        </section>
-    </div>
+            <div class="m3-field">
+                <label class="m3-field__label" for="filter-code">Employee ID</label>
+                <input class="m3-input" id="filter-code" name="employee_code" value="{{ $filters['employee_code'] }}" placeholder="EMP001">
+            </div>
+            <div class="m3-field">
+                <label class="m3-field__label" for="filter-status">Attendance status</label>
+                <select class="m3-select" id="filter-status" name="status">
+                    <option value="">All statuses</option>
+                    <option value="open" @selected($filters['status'] === 'open')>One checkpoint</option>
+                    <option value="complete" @selected($filters['status'] === 'complete')>Two or more checkpoints</option>
+                </select>
+            </div>
+        </div>
+        <div class="row-wrap" style="margin-top:14px">
+            <button class="m3-btn m3-btn--filled m3-btn--sm" type="submit"><x-md-icon name="tune" size="sm" />Apply filters</button>
+            <a class="m3-btn m3-btn--text m3-btn--sm" href="{{ route('admin.dashboard') }}"><x-md-icon name="refresh" size="sm" />Reset</a>
+        </div>
+    </form>
+
+    <section class="stack-md">
+        <div class="row-between">
+            <div>
+                <div class="md-label">Employee daily attendance</div>
+                <div class="m3-card__title">{{ $summaries->total() }} daily summaries</div>
+            </div>
+            <a class="m3-btn m3-btn--tonal m3-btn--sm" href="{{ route('admin.dashboard.export', request()->query()) }}"><x-md-icon name="download" size="sm" />Export CSV</a>
+        </div>
+
+        <div class="m3-card m3-card--flat">
+            @if ($summaries->isEmpty())
+                <div class="empty-state"><x-md-icon name="event_busy" size="lg" /><strong>No attendance matches this selection</strong><span>Choose another date or adjust the filters.</span></div>
+            @else
+                <div class="admin-table-wrap admin-table-wrap--always">
+                    <table class="admin-table">
+                        <thead><tr><th>Employee</th><th>Date</th><th>Check in</th><th>Check out</th><th>Working hours</th><th>Checkpoints</th><th>Actions</th></tr></thead>
+                        <tbody>
+                        @foreach ($summaries as $summary)
+                            @php
+                                $checkIn = $summary->check_in_at ? \Illuminate\Support\Carbon::parse($summary->check_in_at) : null;
+                                $checkOut = $summary->checkpoint_count >= 2 ? \Illuminate\Support\Carbon::parse($summary->latest_checkpoint_at) : null;
+                                $working = $checkIn && $checkOut ? sprintf('%02d:%02d', intdiv($checkIn->diffInMinutes($checkOut), 60), $checkIn->diffInMinutes($checkOut) % 60) : '—';
+                            @endphp
+                            <tr data-employee-code="{{ $summary->employee_id }}">
+                                <td><strong>{{ $summary->employee_name }}</strong><div class="md-muted">{{ $summary->employee_id }}</div></td>
+                                <td>{{ \Illuminate\Support\Carbon::parse($summary->attendance_date)->format('d M Y') }}</td>
+                                <td>{{ $checkIn?->format('h:i A') ?? '—' }}</td>
+                                <td>{{ $checkOut?->format('h:i A') ?? '—' }}</td>
+                                <td>{{ $working }}</td>
+                                <td><span class="m3-chip m3-chip--info">{{ $summary->checkpoint_count }}</span></td>
+                                <td><a class="m3-btn m3-btn--text m3-btn--sm" href="{{ route('admin.trail', ['employee' => $summary->user_id, 'date' => $summary->attendance_date]) }}">View activity</a></td>
+                            </tr>
+                        @endforeach
+                        </tbody>
+                    </table>
+                </div>
+            @endif
+        </div>
+        {{ $summaries->links() }}
+    </section>
 
     <script type="application/json" id="admin-map-data">@json($points)</script>
 @endsection

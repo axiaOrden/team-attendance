@@ -10,6 +10,8 @@ class AttendanceRecord extends Model
 {
     public const TYPE_CHECK_IN = 'check_in';
 
+    public const TYPE_CHECKPOINT = 'checkpoint';
+
     public const TYPE_CHECK_OUT = 'check_out';
 
     protected $fillable = [
@@ -47,8 +49,6 @@ class AttendanceRecord extends Model
         ];
     }
 
-
-
     /**
      * @return BelongsTo<User, $this>
      */
@@ -62,9 +62,14 @@ class AttendanceRecord extends Model
         return $this->type === self::TYPE_CHECK_IN;
     }
 
+    public function isCheckpoint(): bool
+    {
+        return true;
+    }
+
     public function typeLabel(): string
     {
-        return $this->isCheckIn() ? 'Check In' : 'Check Out';
+        return 'Checkpoint';
     }
 
     /**
@@ -132,7 +137,7 @@ class AttendanceRecord extends Model
      */
     public function photoUrl(string $variant = 'watermarked'): ?string
     {
-        $path = $variant === 'original' ? $this->photo : $this->watermarked_photo;
+        $path = $variant === 'original' ? ($this->photo ?: $this->watermarked_photo) : $this->watermarked_photo;
 
         if (! $path) {
             return null;
@@ -146,9 +151,9 @@ class AttendanceRecord extends Model
      *
      * @return array<string, mixed>
      */
-    public function mapPoint(): array
+    public function mapPoint(array $extra = []): array
     {
-        return [
+        return array_merge([
             'id' => $this->id,
             'lat' => $this->latitude,
             'lng' => $this->longitude,
@@ -166,7 +171,7 @@ class AttendanceRecord extends Model
             'device' => $this->deviceLabel(),
             'photo' => $this->photoUrl(),
             'photo_original' => $this->photoUrl('original'),
-        ];
+        ], $extra);
     }
 
     /**
@@ -177,10 +182,10 @@ class AttendanceRecord extends Model
     public function scopeFilter(Builder $query, array $filters): Builder
     {
         return $query
-            ->when($filters['from'] ?? null, fn (Builder $q, $from) => $q->where('attendance_date', '>=', $from))
-            ->when($filters['to'] ?? null, fn (Builder $q, $to) => $q->where('attendance_date', '<=', $to))
-            ->when($filters['employee'] ?? null, fn (Builder $q, $employee) => $q->where('user_id', $employee))
-            ->when($filters['employee_code'] ?? null, fn (Builder $q, $code) => $q->where('employee_id', 'like', '%'.$code.'%'))
-            ->when($filters['type'] ?? null, fn (Builder $q, $type) => $q->where('type', $type));
+            ->when($filters['from'] ?? null, fn (Builder $q, $from) => $q->where('attendance_records.attendance_date', '>=', $from))
+            ->when($filters['to'] ?? null, fn (Builder $q, $to) => $q->where('attendance_records.attendance_date', '<=', $to))
+            ->when($filters['employee'] ?? null, fn (Builder $q, $employee) => $q->where('attendance_records.user_id', $employee))
+            ->when($filters['employee_code'] ?? null, fn (Builder $q, $code) => $q->where('attendance_records.employee_id', 'like', '%'.$code.'%'))
+            ->when($filters['type'] ?? null, fn (Builder $q, $type) => $q->where('attendance_records.type', $type));
     }
 }

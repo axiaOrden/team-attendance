@@ -22,6 +22,8 @@ class TrailController extends Controller
         ]);
 
         $employees = User::query()
+            ->where('role', User::ROLE_EMPLOYEE)
+            ->whereNull('is_inactive')
             ->orderBy('name')
             ->get(['id', 'name', 'employee_id', 'role']);
 

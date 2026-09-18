@@ -7,6 +7,7 @@ use App\Models\User;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Http\UploadedFile;
 use Illuminate\Support\Facades\Storage;
+use Illuminate\Testing\TestResponse;
 use Tests\TestCase;
 
 class AttendanceTest extends TestCase
@@ -26,7 +27,7 @@ class AttendanceTest extends TestCase
     protected function payload(array $overrides = []): array
     {
         return array_merge([
-            'type' => AttendanceRecord::TYPE_CHECK_IN,
+            'type' => AttendanceRecord::TYPE_CHECKPOINT,
             'latitude' => '6.6018000',
             'longitude' => '3.3515000',
             'accuracy' => '8',
@@ -36,21 +37,20 @@ class AttendanceTest extends TestCase
                 'platform_version' => '14',
                 'browser' => 'Chrome 139',
             ]),
-            'photo' => UploadedFile::fake()->image('attendance.jpg'),
             'watermarked_photo' => UploadedFile::fake()->image('attendance-watermarked.jpg'),
         ], $overrides);
     }
 
-    public function test_employees_can_check_in_and_check_out(): void
+    public function test_employees_can_submit_unlimited_checkpoints(): void
     {
         $employee = User::factory()->create(['employee_id' => 'EMP555']);
 
         $this->actingAs($employee)
             ->post(route('attendance.store'), $this->payload())
             ->assertCreated()
-            ->assertJsonPath('record.type', AttendanceRecord::TYPE_CHECK_IN)
-            ->assertJsonPath('status', 'checked_in')
-            ->assertJsonPath('next_type', AttendanceRecord::TYPE_CHECK_OUT);
+            ->assertJsonPath('record.type', AttendanceRecord::TYPE_CHECKPOINT)
+            ->assertJsonPath('status', 'active')
+            ->assertJsonPath('next_type', AttendanceRecord::TYPE_CHECKPOINT);
 
         $record = AttendanceRecord::query()->sole();
 
@@ -59,25 +59,36 @@ class AttendanceTest extends TestCase
         $this->assertEqualsWithDelta(3.3515, $record->longitude, 0.000001);
         $this->assertSame('6.601800, 3.351500', $record->coordinateLabel());
         $this->assertSame('SM-A556B · Android 14', $record->deviceLabel());
-        $this->assertNotNull($record->photo);
+        $this->assertNull($record->photo);
         $this->assertNotNull($record->watermarked_photo);
-        Storage::disk('local')->assertExists($record->photo);
         Storage::disk('local')->assertExists($record->watermarked_photo);
 
-        // A second check in on the same day is refused.
         $this->actingAs($employee)
             ->post(route('attendance.store'), $this->payload())
-            ->assertStatus(409);
+            ->assertCreated();
 
         $this->actingAs($employee)
             ->post(route('attendance.store'), $this->payload([
-                'type' => AttendanceRecord::TYPE_CHECK_OUT,
-                'accuracy' => '12',
+                'type' => AttendanceRecord::TYPE_CHECKPOINT,
             ]))
             ->assertCreated()
-            ->assertJsonPath('status', 'checked_out');
+            ->assertJsonPath('record.type', AttendanceRecord::TYPE_CHECKPOINT)
+            ->assertJsonPath('status', 'active');
 
-        $this->assertSame(2, AttendanceRecord::query()->count());
+        $this->actingAs($employee)
+            ->post(route('attendance.store'), $this->payload([
+                'type' => AttendanceRecord::TYPE_CHECKPOINT,
+            ]))
+            ->assertCreated();
+
+        $this->assertSame(4, AttendanceRecord::query()->count());
+        $this->assertSame([AttendanceRecord::TYPE_CHECKPOINT], AttendanceRecord::query()->distinct()->pluck('type')->all());
+
+        $this->actingAs($employee)
+            ->get(route('dashboard'))
+            ->assertOk()
+            ->assertSee('ADD CHECKPOINT')
+            ->assertSee('4 checkpoints');
     }
 
     public function test_gps_coordinates_are_required(): void
@@ -100,10 +111,9 @@ class AttendanceTest extends TestCase
 
         $this->actingAs($employee)
             ->post(route('attendance.store'), $this->payload([
-                'photo' => null,
                 'watermarked_photo' => null,
             ]))
-            ->assertSessionHasErrors(['photo', 'watermarked_photo']);
+            ->assertSessionHasErrors(['watermarked_photo']);
 
         $this->assertSame(0, AttendanceRecord::query()->count());
     }
@@ -144,7 +154,7 @@ class AttendanceTest extends TestCase
         $admin = User::factory()->admin()->create();
         $employee = User::factory()->create();
 
-        $this->actingAs($admin)->get(route('admin.dashboard'))->assertOk()->assertSee('Attendance records');
+        $this->actingAs($admin)->get(route('admin.dashboard'))->assertOk()->assertSee('Employee daily attendance');
         $this->actingAs($admin)->get(route('admin.trail'))->assertOk()->assertSee('Employee trail map');
         $this->actingAs($admin)->get(route('admin.employees'))->assertOk();
 
@@ -181,12 +191,6 @@ class AttendanceTest extends TestCase
             'accuracy' => 14,
         ]);
 
-        $typeFiltered = $this->actingAs($admin)
-            ->get(route('admin.dashboard', ['type' => 'check_in']))
-            ->assertOk();
-
-        $this->assertSame(['EMP010'], array_column($this->mapPoints($typeFiltered), 'employee_id'));
-
         $dateFiltered = $this->actingAs($admin)
             ->get(route('admin.dashboard', ['date' => today()->toDateString()]))
             ->assertOk();
@@ -203,7 +207,7 @@ class AttendanceTest extends TestCase
         $this->assertSame(['EMP020'], array_column($this->mapPoints($rangeFiltered), 'employee_id'));
 
         $codeFiltered = $this->actingAs($admin)
-            ->get(route('admin.dashboard', ['employee_code' => 'EMP020']))
+            ->get(route('admin.dashboard', ['employee_code' => 'EMP020', 'date' => today()->subDay()->toDateString()]))
             ->assertOk();
 
         $this->assertSame(['EMP020'], array_column($this->mapPoints($codeFiltered), 'employee_id'));
@@ -215,13 +219,97 @@ class AttendanceTest extends TestCase
         $this->assertSame(['EMP010'], array_column($this->mapPoints($employeeFiltered), 'employee_id'));
     }
 
+    public function test_dashboard_summarizes_daily_attendance_and_exports_filtered_csv(): void
+    {
+        $admin = User::factory()->admin()->create();
+        $employee = User::factory()->create(['name' => 'Daily Summary', 'employee_id' => 'EMP777']);
+        $date = today()->toDateString();
+
+        foreach ([
+            [AttendanceRecord::TYPE_CHECKPOINT, '08:00:00'],
+            [AttendanceRecord::TYPE_CHECKPOINT, '10:30:00'],
+            [AttendanceRecord::TYPE_CHECKPOINT, '14:15:00'],
+            [AttendanceRecord::TYPE_CHECKPOINT, '17:00:00'],
+        ] as [$type, $time]) {
+            AttendanceRecord::query()->create([
+                'user_id' => $employee->id,
+                'employee_id' => $employee->employee_id,
+                'type' => $type,
+                'attendance_date' => $date,
+                'recorded_at' => $date.' '.$time,
+                'latitude' => 6.6,
+                'longitude' => 3.35,
+            ]);
+        }
+
+        $this->actingAs($admin)
+            ->get(route('admin.dashboard', ['date' => $date]))
+            ->assertOk()
+            ->assertSee('Daily Summary')
+            ->assertSee('09:00')
+            ->assertSee('>4<', false);
+
+        $mapPoint = $this->mapPoints($this->actingAs($admin)->get(route('admin.dashboard', ['date' => $date])))[0];
+        $this->assertSame('05:00 PM', $mapPoint['time_long']);
+        $this->assertSame(4, $mapPoint['checkpoint_total']);
+
+        $export = $this->actingAs($admin)->get(route('admin.dashboard.export', [
+            'date' => $date,
+            'employee' => $employee->id,
+        ]));
+
+        $export->assertOk()->assertDownload();
+        $csv = $export->streamedContent();
+
+        $this->assertStringContainsString('EMP777,"Daily Summary"', $csv);
+        $this->assertStringContainsString('09:00,4', $csv);
+    }
+
+    public function test_deactivated_employees_are_excluded_and_cannot_submit_checkpoints(): void
+    {
+        $admin = User::factory()->admin()->create();
+        $activeEmployee = User::factory()->create(['name' => 'Active Employee', 'employee_id' => 'ACTIVE01']);
+        $inactiveEmployee = User::factory()->create(['name' => 'Former Employee', 'employee_id' => 'FORMER01']);
+
+        $this->actingAs($activeEmployee)->post(route('attendance.store'), $this->payload())->assertCreated();
+        $this->actingAs($inactiveEmployee)->post(route('attendance.store'), $this->payload())->assertCreated();
+
+        $this->actingAs($admin)
+            ->patch(route('admin.employees.status', $inactiveEmployee), ['is_inactive' => true])
+            ->assertRedirect();
+
+        $this->assertTrue($inactiveEmployee->refresh()->is_inactive);
+        $this->assertSame(2, AttendanceRecord::query()->count());
+
+        $dashboard = $this->actingAs($admin)->get(route('admin.dashboard'))->assertOk();
+        $this->assertSame(['ACTIVE01'], array_column($this->mapPoints($dashboard), 'employee_id'));
+        $dashboard->assertSee('1 latest employee locations');
+
+        $export = $this->actingAs($admin)->get(route('admin.dashboard.export'));
+        $this->assertStringNotContainsString('FORMER01', $export->streamedContent());
+
+        $this->actingAs($inactiveEmployee)
+            ->post(route('attendance.store'), $this->payload())
+            ->assertForbidden();
+
+        $this->actingAs($admin)
+            ->patch(route('admin.employees.status', $inactiveEmployee), ['is_inactive' => false])
+            ->assertRedirect();
+
+        $this->assertNull($inactiveEmployee->refresh()->is_inactive);
+
+        $this->actingAs($inactiveEmployee)
+            ->post(route('attendance.store'), $this->payload())
+            ->assertCreated();
+    }
+
     /**
      * The map data only contains the filtered records, which makes it a precise
      * way to assert what the administrator actually sees.
      *
      * @return array<int, array<string, mixed>>
      */
-    protected function mapPoints(\Illuminate\Testing\TestResponse $response): array
+    protected function mapPoints(TestResponse $response): array
     {
         preg_match('#<script type="application/json" id="admin-map-data">(.*?)</script>#s', $response->getContent(), $matches);
 

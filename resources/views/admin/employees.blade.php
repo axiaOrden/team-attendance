@@ -40,6 +40,7 @@
                             <th>Employee</th>
                             <th>Employee ID</th>
                             <th>Role</th>
+                            <th>Status</th>
                             <th>Records</th>
                             <th>Last activity</th>
                         </tr>
@@ -64,6 +65,25 @@
                                         </select>
                                     </form>
                                 </td>
+                                <td>
+                                    <div class="stack-sm">
+                                        <span class="m3-chip m3-chip--{{ $employee->isActive() ? 'success' : 'warning' }}">
+                                            {{ $employee->isActive() ? 'Active' : 'Inactive' }}
+                                        </span>
+                                        @if ($employee->isEmployee())
+                                            <form method="POST"
+                                                  action="{{ route('admin.employees.status', $employee) }}"
+                                                  data-confirm="{{ $employee->isActive() ? 'Deactivate' : 'Reactivate' }} {{ $employee->name }}?">
+                                                @csrf
+                                                @method('PATCH')
+                                                <input type="hidden" name="is_inactive" value="{{ $employee->isActive() ? 1 : 0 }}">
+                                                <button type="submit" class="m3-btn m3-btn--{{ $employee->isActive() ? 'text' : 'tonal' }} m3-btn--sm">
+                                                    {{ $employee->isActive() ? 'Deactivate' : 'Reactivate' }}
+                                                </button>
+                                            </form>
+                                        @endif
+                                    </div>
+                                </td>
                                 <td>{{ number_format($employee->attendances_count) }}</td>
                                 <td>
                                     @if ($employee->attendances_max_recorded_at)
@@ -80,33 +100,64 @@
 
             <div class="admin-cards">
                 @foreach ($employees as $employee)
-                    <div class="admin-record-card">
-                        <div class="m3-row__icon">
-                            <x-md-icon name="{{ $employee->role === 'admin' ? 'account_circle' : 'person' }}" size="sm" />
-                        </div>
-                        <div class="m3-row__body">
-                            <div class="m3-row__title">{{ $employee->name }}</div>
-                            <div class="m3-row__meta">{{ $employee->employee_id }} · {{ $employee->email }}</div>
-                            <div class="m3-row__meta">
-                                {{ number_format($employee->attendances_count) }} records ·
-                                {{ $employee->attendances_max_recorded_at
-                                    ? 'last '.\Illuminate\Support\Carbon::parse($employee->attendances_max_recorded_at)->diffForHumans()
-                                    : 'no activity yet' }}
+                    <article class="employee-card">
+                        <header class="employee-card__header">
+                            <div class="m3-row__icon">
+                                <x-md-icon name="{{ $employee->role === 'admin' ? 'account_circle' : 'person' }}" size="sm" />
                             </div>
+                            <div class="employee-card__identity">
+                                <div class="m3-row__title">{{ $employee->name }}</div>
+                                <div class="m3-row__meta">{{ $employee->employee_id }}</div>
+                            </div>
+                            <span class="m3-chip m3-chip--{{ $employee->isActive() ? 'success' : 'warning' }}">
+                                {{ $employee->isActive() ? 'Active' : 'Inactive' }}
+                            </span>
+                        </header>
 
+                        <dl class="employee-card__details">
+                            <div>
+                                <dt>Email</dt>
+                                <dd>{{ $employee->email }}</dd>
+                            </div>
+                            <div>
+                                <dt>Attendance records</dt>
+                                <dd>{{ number_format($employee->attendances_count) }}</dd>
+                            </div>
+                            <div>
+                                <dt>Last activity</dt>
+                                <dd>{{ $employee->attendances_max_recorded_at
+                                    ? \Illuminate\Support\Carbon::parse($employee->attendances_max_recorded_at)->isoFormat('D MMM YYYY, HH:mm')
+                                    : 'Never' }}</dd>
+                            </div>
+                        </dl>
+
+                        <div class="employee-card__actions">
                             <form method="POST"
                                   action="{{ route('admin.employees.role', $employee) }}"
-                                  style="margin-top:10px"
                                   data-confirm="Change the role of {{ $employee->name }}?">
                                 @csrf
                                 @method('PATCH')
-                                <select class="m3-select" name="role" style="min-height:44px" data-auto-submit>
+                                <label class="m3-field__label" for="role-{{ $employee->id }}">Role</label>
+                                <select id="role-{{ $employee->id }}" class="m3-select" name="role" data-auto-submit>
                                     <option value="employee" @selected($employee->role === 'employee')>Employee</option>
                                     <option value="admin" @selected($employee->role === 'admin')>Administrator</option>
                                 </select>
                             </form>
+
+                            @if ($employee->isEmployee())
+                                <form method="POST"
+                                      action="{{ route('admin.employees.status', $employee) }}"
+                                      data-confirm="{{ $employee->isActive() ? 'Deactivate' : 'Reactivate' }} {{ $employee->name }}?">
+                                    @csrf
+                                    @method('PATCH')
+                                    <input type="hidden" name="is_inactive" value="{{ $employee->isActive() ? 1 : 0 }}">
+                                    <button type="submit" class="m3-btn m3-btn--{{ $employee->isActive() ? 'outlined' : 'tonal' }} m3-btn--sm">
+                                        {{ $employee->isActive() ? 'Deactivate employee' : 'Reactivate employee' }}
+                                    </button>
+                                </form>
+                            @endif
                         </div>
-                    </div>
+                    </article>
                 @endforeach
             </div>
         @endif

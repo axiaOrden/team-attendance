@@ -83,13 +83,13 @@
                         @foreach ($records as $index => $record)
                             <article class="timeline__item" data-point-index="{{ $index }}">
                                 <div class="timeline__rail">
-                                    <span class="timeline__dot {{ $record->isCheckIn() ? 'timeline__dot--in' : 'timeline__dot--out' }}"></span>
+                                    <span class="timeline__dot timeline__dot--checkpoint"></span>
                                 </div>
                                 <div class="timeline__body">
                                     <div class="row-between">
                                         <span class="timeline__time">{{ $record->recorded_at->format('H:i') }}</span>
-                                        <span class="m3-chip m3-chip--{{ $record->isCheckIn() ? 'success' : 'info' }}">
-                                            {{ $record->isCheckIn() ? 'CHECK IN' : 'CHECK OUT' }}
+                                        <span class="m3-chip m3-chip--info">
+                                            {{ strtoupper($record->typeLabel()) }}
                                         </span>
                                     </div>
 
@@ -133,10 +133,7 @@
 
             <div class="map-legend">
                 <span class="map-legend__item">
-                    <span class="map-legend__dot" style="background: var(--md-success)"></span> Check in
-                </span>
-                <span class="map-legend__item">
-                    <span class="map-legend__dot" style="background: var(--md-primary)"></span> Check out
+                    <span class="map-legend__dot map-legend__dot--checkpoint"></span> Checkpoint
                 </span>
                 <span class="map-legend__item">Numbered in chronological order</span>
             </div>

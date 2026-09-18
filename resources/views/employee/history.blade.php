@@ -34,7 +34,7 @@
                             </div>
                             <div class="m3-row__body">
                                 <div class="m3-row__title">
-                                    {{ $record->isCheckIn() ? 'CHECK IN' : 'CHECK OUT' }}
+                                    {{ strtoupper($record->typeLabel()) }}
                                     <span class="md-muted" style="font-weight:400">· {{ $record->recorded_at->format('h:i A') }}</span>
                                 </div>
                                 <div class="m3-row__meta">

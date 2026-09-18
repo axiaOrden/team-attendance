@@ -52,4 +52,8 @@ return [
         'email' => env('NOMINATIM_EMAIL'),
     ],
 
+    'attendance_api' => [
+        'token' => env('ATTENDANCE_API_TOKEN'),
+    ],
+
 ];

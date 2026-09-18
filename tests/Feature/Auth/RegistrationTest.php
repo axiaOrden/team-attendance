@@ -9,6 +9,7 @@ use Tests\TestCase;
 class RegistrationTest extends TestCase
 {
     use RefreshDatabase;
+
     public function test_registration_screen_can_be_rendered(): void
     {
         $response = $this->get('/register');
@@ -32,7 +33,7 @@ class RegistrationTest extends TestCase
         $this->assertDatabaseHas('users', [
             'email' => 'test@example.com',
             'employee_id' => 'EMP777',
-            'role' => \App\Models\User::ROLE_EMPLOYEE,
+            'role' => User::ROLE_EMPLOYEE,
         ]);
     }
 
@@ -50,6 +51,23 @@ class RegistrationTest extends TestCase
 
         $response->assertSessionHasErrors('employee_id');
         $this->assertGuest();
+    }
+
+    public function test_employee_id_is_normalized_before_duplicate_validation(): void
+    {
+        User::factory()->create(['employee_id' => 'EMP777']);
+
+        $response = $this->post('/register', [
+            'name' => 'Duplicate Employee',
+            'employee_id' => '  emp777  ',
+            'email' => 'duplicate@example.com',
+            'password' => 'password',
+            'password_confirmation' => 'password',
+        ]);
+
+        $response->assertSessionHasErrors('employee_id');
+        $this->assertGuest();
+        $this->assertDatabaseCount('users', 1);
     }
 
     public function test_employee_id_is_required(): void

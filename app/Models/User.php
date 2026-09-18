@@ -4,6 +4,7 @@ namespace App\Models;
 
 // use Illuminate\Contracts\Auth\MustVerifyEmail;
 use Database\Factories\UserFactory;
+use Illuminate\Database\Eloquent\Collection;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Relations\HasMany;
 use Illuminate\Foundation\Auth\User as Authenticatable;
@@ -25,6 +26,7 @@ class User extends Authenticatable
         'email',
         'password',
         'role',
+        'is_inactive',
     ];
 
     protected $hidden = [
@@ -37,10 +39,9 @@ class User extends Authenticatable
         return [
             'email_verified_at' => 'datetime',
             'password' => 'hashed',
+            'is_inactive' => 'boolean',
         ];
     }
-
-
 
     /**
      * @return HasMany<AttendanceRecord, $this>
@@ -60,12 +61,17 @@ class User extends Authenticatable
         return ! $this->isAdmin();
     }
 
+    public function isActive(): bool
+    {
+        return $this->is_inactive === null;
+    }
+
     /**
      * Attendance records for a given day, oldest first.
      *
-     * @return \Illuminate\Database\Eloquent\Collection<int, AttendanceRecord>
+     * @return Collection<int, AttendanceRecord>
      */
-    public function attendanceOn(Carbon|string|null $date = null): \Illuminate\Database\Eloquent\Collection
+    public function attendanceOn(Carbon|string|null $date = null): Collection
     {
         $date = $date instanceof Carbon ? $date : Carbon::parse($date ?? now());
 
@@ -78,24 +84,21 @@ class User extends Authenticatable
     /**
      * Summarise a single day of attendance.
      *
-     * @return array{check_in: ?AttendanceRecord, check_out: ?AttendanceRecord, type: ?string, status: string}
+     * @return array{check_in: ?AttendanceRecord, check_out: ?AttendanceRecord, checkpoints: int, type: string, status: string}
      */
     public function dailySummary(Carbon|string|null $date = null): array
     {
         $records = $this->attendanceOn($date);
 
-        $checkIn = $records->firstWhere('type', AttendanceRecord::TYPE_CHECK_IN);
-        $checkOut = $records->where('type', AttendanceRecord::TYPE_CHECK_OUT)->last();
+        $checkIn = $records->first();
+        $checkOut = $records->count() > 1 ? $records->last() : null;
 
         return [
             'check_in' => $checkIn,
             'check_out' => $checkOut,
-            'type' => $checkOut ? null : ($checkIn ? AttendanceRecord::TYPE_CHECK_OUT : AttendanceRecord::TYPE_CHECK_IN),
-            'status' => match (true) {
-                $checkIn && $checkOut => 'checked_out',
-                (bool) $checkIn => 'checked_in',
-                default => 'not_checked_in',
-            },
+            'checkpoints' => $records->count(),
+            'type' => AttendanceRecord::TYPE_CHECKPOINT,
+            'status' => $records->isEmpty() ? 'no_checkpoints' : 'active',
         ];
     }
 }

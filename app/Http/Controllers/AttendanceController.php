@@ -15,9 +15,7 @@ use Symfony\Component\HttpFoundation\StreamedResponse;
 
 class AttendanceController extends Controller
 {
-    public function __construct(protected ReverseGeocoder $geocoder)
-    {
-    }
+    public function __construct(protected ReverseGeocoder $geocoder) {}
 
     /**
      * The employee attendance screen.
@@ -67,16 +65,7 @@ class AttendanceController extends Controller
     public function store(StoreAttendanceRequest $request): JsonResponse
     {
         $user = $request->user();
-        $summary = $user->dailySummary();
-        $type = (string) $request->string('type');
-
-        // The server - not the browser - decides which event is possible.
-        if ($summary['type'] !== $type) {
-            return response()->json([
-                'message' => $this->rejectionMessage($summary['status']),
-                'status' => $summary['status'],
-            ], 409);
-        }
+        $type = AttendanceRecord::TYPE_CHECKPOINT;
 
         $now = now();
         $location = $this->geocoder->lookup($request->input('latitude'), $request->input('longitude'));
@@ -93,7 +82,6 @@ class AttendanceController extends Controller
             'city' => $location['city'],
             'state' => $location['state'],
             'country' => $location['country'],
-            'photo' => $this->storePhoto($request, 'photo', $user->id, $type, $now->toDateString(), 'capture'),
             'watermarked_photo' => $this->storePhoto($request, 'watermarked_photo', $user->id, $type, $now->toDateString(), 'watermarked'),
             'device_information' => $this->deviceInformation($request),
             'user_agent' => $request->userAgent(),
@@ -103,11 +91,11 @@ class AttendanceController extends Controller
         $summary = $user->dailySummary();
 
         return response()->json([
-            'message' => $type === AttendanceRecord::TYPE_CHECK_IN ? 'Checked in successfully.' : 'Checked out successfully.',
+            'message' => 'Checkpoint recorded successfully.',
             'record' => [
                 'id' => $record->id,
                 'type' => $record->type,
-                'type_label' => $record->isCheckIn() ? 'CHECKED IN' : 'CHECKED OUT',
+                'type_label' => strtoupper($record->typeLabel()),
                 'time' => $record->recorded_at->format('h:i:s A'),
                 'date' => $record->recorded_at->format('d M Y'),
                 'location' => $record->locationLabel(),
@@ -118,7 +106,7 @@ class AttendanceController extends Controller
                 'original_photo_url' => $record->photoUrl('original'),
             ],
             'status' => $summary['status'],
-            'next_type' => $summary['type'],
+            'next_type' => AttendanceRecord::TYPE_CHECKPOINT,
             'history_url' => route('attendance.history'),
         ], 201);
     }
@@ -154,7 +142,7 @@ class AttendanceController extends Controller
             abort(403);
         }
 
-        $path = $variant === 'original' ? $record->photo : $record->watermarked_photo;
+        $path = $variant === 'original' ? ($record->photo ?: $record->watermarked_photo) : $record->watermarked_photo;
 
         abort_if(! $path || ! Storage::disk('local')->exists($path), 404, 'Attendance photo not found.');
 
@@ -205,14 +193,5 @@ class AttendanceController extends Controller
         }
 
         return array_filter($decoded, fn ($value) => $value !== null && $value !== '' && $value !== []);
-    }
-
-    protected function rejectionMessage(string $status): string
-    {
-        return match ($status) {
-            'checked_in' => 'You are already checked in. Please check out first.',
-            'checked_out' => 'Attendance for today is already complete.',
-            default => 'Attendance could not be recorded for today.',
-        };
     }
 }

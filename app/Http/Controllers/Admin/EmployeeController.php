@@ -55,4 +55,23 @@ class EmployeeController extends Controller
 
         return back()->with('status', $user->name.' is now '.($data['role'] === User::ROLE_ADMIN ? 'an administrator' : 'an employee').'.');
     }
+
+    public function updateStatus(Request $request, User $user): RedirectResponse
+    {
+        $data = $request->validate([
+            'is_inactive' => ['required', 'boolean'],
+        ]);
+
+        if ($user->id === $request->user()->id) {
+            return back()->withErrors(['is_inactive' => 'You cannot deactivate your own account.']);
+        }
+
+        if ($user->isAdmin()) {
+            return back()->withErrors(['is_inactive' => 'Administrator accounts cannot be deactivated here.']);
+        }
+
+        $user->update(['is_inactive' => $data['is_inactive'] ? true : null]);
+
+        return back()->with('status', $user->name.' is now '.($user->isActive() ? 'active' : 'inactive').'.');
+    }
 }

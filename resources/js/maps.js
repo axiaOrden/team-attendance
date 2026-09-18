@@ -1,165 +1,108 @@
-/**
- * OpenStreetMap views for the administrator pages.
- *
- * The trail line only expresses the chronological order of the recorded
- * attendance events - it is never presented as the exact travelled route.
- */
-
-const OSM_TILE_URL = 'https://tile.openstreetmap.org/{z}/{x}/{y}.png';
-const OSM_ATTRIBUTION =
-    '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors';
+const CARTO_STYLE = 'https://basemaps.cartocdn.com/gl/positron-gl-style/style.json';
+const TRAIL_COLORS = ['#6750a4', '#006c4c', '#9c4146', '#00658d', '#795900', '#8c4a60'];
 
 function ready(callback) {
-    if (document.readyState === 'loading') {
-        document.addEventListener('DOMContentLoaded', callback, { once: true });
-    } else {
-        callback();
-    }
+    if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', callback, { once: true });
+    else callback();
 }
 
 ready(() => {
     initAttendanceMap('admin-map', 'admin-map-data');
-    initAttendanceMap('trail-map', 'trail-map-data', { numbered: true, connect: true });
+    initAttendanceMap('trail-map', 'trail-map-data', { numbered: true });
 });
 
 function escapeHtml(value) {
-    return String(value ?? '')
-        .replace(/&/g, '&amp;')
-        .replace(/</g, '&lt;')
-        .replace(/>/g, '&gt;')
-        .replace(/"/g, '&quot;')
-        .replace(/'/g, '&#39;');
-}
-
-function isUsableCoordinate(point) {
-    return Number.isFinite(Number(point.lat)) && Number.isFinite(Number(point.lng));
+    return String(value ?? '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;').replace(/'/g, '&#39;');
 }
 
 function initAttendanceMap(containerId, dataId, options = {}) {
     const container = document.getElementById(containerId);
     const dataElement = document.getElementById(dataId);
+    if (!container || !dataElement) return;
 
-    if (!container || !dataElement || typeof window.L === 'undefined') {
-        return;
-    }
-
-    const points = JSON.parse(dataElement.textContent || '[]').filter(isUsableCoordinate);
-
+    const points = JSON.parse(dataElement.textContent || '[]').filter((point) => Number.isFinite(Number(point.lat)) && Number.isFinite(Number(point.lng)));
     if (!points.length) {
-        container.innerHTML =
-            '<div class="map__empty"><div><strong>No attendance locations yet</strong>' +
-            '<p class="m3-help" style="margin-top:6px">Adjust the filters above to see recorded GPS points.</p></div></div>';
+        container.innerHTML = '<div class="map__empty"><div><strong>No attendance locations</strong><p>Adjust the date or filters to view activity.</p></div></div>';
         return;
     }
 
-    const map = window.L.map(container, {
-        scrollWheelZoom: false,
-        attributionControl: true,
-    });
-
-    window.L
-        .tileLayer(OSM_TILE_URL, { maxZoom: 19, attribution: OSM_ATTRIBUTION })
-        .addTo(map);
-
-    const markers = points.map((point, index) => {
-        const marker = window.L
-            .marker([Number(point.lat), Number(point.lng)], { icon: pinIcon(point, index, options.numbered) })
-            .addTo(map);
-
-        marker.bindPopup(popupHtml(point), { maxWidth: 280 });
-
-        return marker;
-    });
-
-    if (options.connect && markers.length > 1) {
-        window.L
-            .polyline(points.map((point) => [Number(point.lat), Number(point.lng)]), {
-                color: '#6750a4',
-                weight: 3,
-                opacity: 0.8,
-                dashArray: '8 8',
-                lineCap: 'round',
-            })
-            .addTo(map);
-    }
-
-    map.fitBounds(window.L.latLngBounds(points.map((point) => [Number(point.lat), Number(point.lng)])).pad(0.25), {
-        maxZoom: 16,
-    });
-
-    if (markers.length === 1) {
-        map.setZoom(16);
-    }
-
-    window.setTimeout(() => map.invalidateSize(), 200);
-
-    // The timeline on the trail page drives the map.
-    document.querySelectorAll('[data-point-index]').forEach((element) => {
-        element.addEventListener('click', () => {
-            const marker = markers[Number(element.dataset.pointIndex)];
-
-            if (!marker) {
-                return;
-            }
-
-            map.setView(marker.getLatLng(), Math.max(map.getZoom(), 15));
-            marker.openPopup();
-        });
-    });
+    const timer = window.setInterval(() => {
+        if (!window.maplibregl) return;
+        window.clearInterval(timer);
+        buildMap(container, points, options);
+    }, 30);
 }
 
-function pinIcon(point, index, numbered) {
-    const variant = point.type === 'check_in' ? 'map-pin--in' : 'map-pin--out';
-    const label = numbered ? index + 1 : point.type === 'check_in' ? '↓' : '↑';
+function buildMap(container, points, options) {
+    const map = new window.maplibregl.Map({ container, style: CARTO_STYLE, center: [Number(points[0].lng), Number(points[0].lat)], zoom: 13 });
+    map.addControl(new window.maplibregl.NavigationControl({ showCompass: false }), 'top-right');
 
-    return window.L.divIcon({
-        className: '',
-        html: `<div class="map-pin ${variant}"><span>${label}</span></div>`,
-        iconSize: [30, 30],
-        iconAnchor: [15, 30],
-        popupAnchor: [0, -28],
+    const grouped = points.reduce((result, point) => {
+        const key = String(point.employee_id || point.employee || 'employee');
+        result[key] = [...(result[key] || []), point];
+        return result;
+    }, {});
+    const employeeColors = Object.fromEntries(Object.keys(grouped).map((key, index) => [key, TRAIL_COLORS[index % TRAIL_COLORS.length]]));
+    const pointFeatures = points.map((point, index) => ({
+        type: 'Feature', geometry: { type: 'Point', coordinates: [Number(point.lng), Number(point.lat)] }, properties: {
+            ...point,
+            sequence: index + 1,
+            employee_color: employeeColors[String(point.employee_id || point.employee || 'employee')],
+        },
+    }));
+    const trailFeatures = Object.entries(grouped).filter(([, values]) => values.length > 1).map(([employeeId, values], index) => ({
+        type: 'Feature', geometry: { type: 'LineString', coordinates: values.map((point) => [Number(point.lng), Number(point.lat)]) }, properties: { employeeId, color: TRAIL_COLORS[index % TRAIL_COLORS.length] },
+    }));
+
+    map.on('load', () => {
+        if (options.numbered) {
+            map.addSource('trails', { type: 'geojson', data: { type: 'FeatureCollection', features: trailFeatures } });
+            map.addLayer({ id: 'trails', type: 'line', source: 'trails', paint: { 'line-color': ['get', 'color'], 'line-width': 3, 'line-opacity': 0.72 }, layout: { 'line-cap': 'round', 'line-join': 'round' } });
+        }
+
+        map.addSource('attendance', { type: 'geojson', data: { type: 'FeatureCollection', features: pointFeatures } });
+
+        map.addLayer({ id: 'activities', type: 'circle', source: 'attendance', filter: ['!', ['has', 'point_count']], paint: {
+            'circle-color': ['get', 'employee_color'],
+            'circle-radius': options.numbered ? 10 : 8, 'circle-stroke-width': 3, 'circle-stroke-color': '#fff',
+        } });
+        if (options.numbered) map.addLayer({ id: 'activity-labels', type: 'symbol', source: 'attendance', layout: { 'text-field': ['to-string', ['get', 'sequence']], 'text-size': 11 }, paint: { 'text-color': '#fff' } });
+
+        map.on('click', 'activities', (event) => {
+            const feature = event.features[0];
+            new window.maplibregl.Popup({ offset: 14, maxWidth: '300px' }).setLngLat(feature.geometry.coordinates).setHTML(popupHtml(feature.properties)).addTo(map);
+            document.querySelectorAll('[data-point-index]').forEach((item) => item.classList.remove('is-active'));
+            document.querySelector(`[data-point-index="${Number(feature.properties.sequence) - 1}"]`)?.classList.add('is-active');
+        });
+        ['activities'].forEach((layer) => {
+            if (!map.getLayer(layer)) return;
+            map.on('mouseenter', layer, () => { map.getCanvas().style.cursor = 'pointer'; });
+            map.on('mouseleave', layer, () => { map.getCanvas().style.cursor = ''; });
+        });
+        fitToPoints(map, points);
     });
+
+    document.querySelectorAll('[data-point-index]').forEach((element) => element.addEventListener('click', () => {
+        const point = points[Number(element.dataset.pointIndex)];
+        map.flyTo({ center: [Number(point.lng), Number(point.lat)], zoom: 16 });
+    }));
+
+    document.querySelectorAll('[data-employee-code]').forEach((row) => row.addEventListener('click', (event) => {
+        if (event.target.closest('a, button')) return;
+        fitToPoints(map, points.filter((point) => String(point.employee_id) === row.dataset.employeeCode));
+        container.scrollIntoView({ behavior: 'smooth', block: 'center' });
+    }));
+}
+
+function fitToPoints(map, points) {
+    if (!points.length) return;
+    const bounds = points.reduce((box, point) => box.extend([Number(point.lng), Number(point.lat)]), new window.maplibregl.LngLatBounds());
+    map.fitBounds(bounds, { padding: 56, maxZoom: 16, duration: 700 });
 }
 
 function popupHtml(point) {
-    const facts = [
-        ['Time', `${escapeHtml(point.time_long)} · ${escapeHtml(point.date)}`],
-        ['Accuracy', escapeHtml(point.accuracy)],
-        ['Coordinates', escapeHtml(point.coordinates)],
-    ];
-
-    const photo = point.photo
-        ? `<a class="map-popup__photo" href="${escapeHtml(point.photo)}" target="_blank" rel="noopener">
-                <img src="${escapeHtml(point.photo)}" alt="Watermarked attendance photo" loading="lazy">
-           </a>
-           ${
-               point.photo_original
-                   ? `<a class="map-popup__link" href="${escapeHtml(point.photo_original)}" target="_blank" rel="noopener">View original photo</a>`
-                   : ''
-           }`
-        : '<p class="m3-help" style="margin-top:8px">No photo stored for this record.</p>';
-
-    return `
-        <div class="map-popup">
-            <div class="map-popup__title">${escapeHtml(point.employee || 'Employee')}</div>
-            <div class="map-popup__sub">${escapeHtml(point.employee_id)} · ${escapeHtml(point.type_label)}</div>
-
-            <div class="m3-facts" style="font-size:.8125rem">
-                ${facts
-                    .map(
-                        ([label, value]) =>
-                            `<div class="m3-fact"><span class="m3-fact__label">${label}</span><span class="m3-fact__value">${value}</span></div>`
-                    )
-                    .join('')}
-                <div class="m3-fact"><span class="m3-fact__label">Address</span><span class="m3-fact__value">${escapeHtml(
-                    point.address || point.location || 'Not available'
-                )}</span></div>
-                <div class="m3-fact"><span class="m3-fact__label">Device</span><span class="m3-fact__value">${escapeHtml(
-                    point.device
-                )}</span></div>
-            </div>
-
-            ${photo}
-        </div>
-    `;
+    const photo = point.photo ? `<a class="m3-btn m3-btn--text m3-btn--sm" href="${escapeHtml(point.photo)}" target="_blank" rel="noopener">View photo</a>` : '';
+    const activity = point.activity_url ? `<a class="m3-btn m3-btn--tonal m3-btn--sm" href="${escapeHtml(point.activity_url)}">View activity</a>` : '';
+    const total = point.checkpoint_total ? `<div><strong>${escapeHtml(point.checkpoint_total)}</strong> checkpoints in selection</div>` : '';
+    return `<div class="map-popup"><strong>${escapeHtml(point.employee)}</strong><div class="map-popup__sub">${escapeHtml(point.employee_id)} · Latest checkpoint</div><div>${escapeHtml(point.time_long)} · ${escapeHtml(point.date)}</div><div>${escapeHtml(point.coordinates)} · ${escapeHtml(point.accuracy)}</div><div>${escapeHtml(point.device)}</div><p>${escapeHtml(point.address || point.location || 'Address unavailable')}</p>${total}<div class="row-wrap">${activity}${photo}</div></div>`;
 }
